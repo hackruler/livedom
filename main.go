@@ -361,7 +361,12 @@ func resolveDNS(domain string) (string, string) {
 	// Resolve CNAME
 	cnames, err := net.LookupCNAME(domain)
 	if err == nil && cnames != "" {
-		cname = strings.TrimSuffix(cnames, ".")
+		cnameValue := strings.TrimSuffix(cnames, ".")
+		// Only return CNAME if it's different from the domain (actual CNAME record exists)
+		// If it's the same, it means there's no CNAME record
+		if cnameValue != domain && cnameValue != domain+"." {
+			cname = cnameValue
+		}
 	}
 
 	return ip, cname
@@ -377,8 +382,8 @@ func newColor(attr color.Attribute) *color.Color {
 func displaySingleResult(result Result, config *Config) {
 	var output []string
 
-	// Always show URL
-	output = append(output, newColor(color.FgWhite).Sprint(result.URL))
+	// Always show URL (no color)
+	output = append(output, result.URL)
 
 	// Status code
 	if config.ShowStatusCode {
