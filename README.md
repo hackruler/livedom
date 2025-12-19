@@ -7,11 +7,12 @@ A fast and efficient live domain/URL checker written in Go. Similar to httpx, bu
 - ⚡ **Blazing Fast**: Powered by [fasthttp](https://github.com/valyala/fasthttp) for maximum performance
 - 🔄 **Streaming Processing**: Processes URLs as they come in (no buffering)
 - 🌐 **Smart URL Detection**: Handles both domains and full URLs
-- 🎨 **Color-coded Output**: Status codes are color-coded for easy identification
-- 📊 **Status Code Display**: Optional status code display with `-sc` flag
+- 🎨 **Color-coded Output**: Status codes and fields are color-coded for easy identification
+- 📊 **Rich Information**: Display status codes, content type, hash, title, server, IP, CNAME, and content length
 - 🔀 **HTTP/HTTPS Fallback**: Tries HTTPS first, falls back to HTTP
 - 🚀 **Concurrent Processing**: Configurable thread count for optimal performance
 - ✅ **Any Response = Live**: Accepts 2xx, 3xx, 4xx, 5xx as "live" (matches httpx behavior)
+- 💾 **File Output Support**: Colors work even when redirecting output to files
 
 ## Installation
 
@@ -99,6 +100,13 @@ livedom -f domains.txt -sc
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-sc` | Show status code | `false` |
+| `-ct` | Show content type | `false` |
+| `-hash` | Show SHA256 hash of response body | `false` |
+| `-title` | Show page title (extracted from HTML) | `false` |
+| `-server` | Show server name from headers | `false` |
+| `-ip` | Show IP address (DNS resolution) | `false` |
+| `-cname` | Show CNAME record | `false` |
+| `-cl` | Show content length | `false` |
 | `-t` | Number of concurrent threads | `50` |
 | `-timeout` | Request timeout duration | `5s` |
 | `-f` | Input file (default: stdin) | `""` |
@@ -117,6 +125,22 @@ https://google.com
 ```bash
 $ echo "google.com" | livedom -sc
 https://google.com [301]
+```
+
+### With Multiple Flags
+
+```bash
+# Status code and content type
+$ echo "google.com" | livedom -sc -ct
+https://google.com [301] [text/html]
+
+# Status code, IP, and server
+$ echo "google.com" | livedom -sc -ip -server
+https://google.com [301] [142.250.76.78] [gws]
+
+# All information
+$ echo "google.com" | livedom -sc -ct -hash -title -server -ip -cname -cl
+https://google.com [301] [text/html] [a1b2c3...] [Google] [gws] [142.250.76.78] [google.com] [12345]
 ```
 
 ### Process Full URLs
@@ -165,13 +189,38 @@ http://example.com [301]
 https://example.com [404]
 ```
 
-### Status Code Colors
+### With Multiple Flags
 
-- **Green**: 2xx (Success)
-- **Yellow**: 3xx (Redirect)
-- **Red**: 4xx (Client Error)
-- **Magenta**: 5xx (Server Error)
-- **White**: Other status codes
+```
+# Status code and content type
+https://example.com [200] [text/html]
+
+# Status code, IP, and server
+https://example.com [200] [93.184.216.34] [nginx/1.18.0]
+
+# Empty values show as empty brackets
+https://example.com [200] [] [nginx/1.18.0]
+```
+
+### Color Coding
+
+- **Status Codes**:
+  - **Green**: 2xx (Success)
+  - **Yellow**: 3xx (Redirect)
+  - **Red**: 4xx (Client Error)
+  - **Magenta**: 5xx (Server Error)
+  - **White**: Other status codes
+- **Content Type**: Yellow
+- **Content Length**: Cyan
+- **Hash**: Magenta
+- **Title**: Blue
+- **Server**: Green
+- **IP**: Cyan
+- **CNAME**: Yellow
+
+### Empty Values
+
+When a flag is set but the value is not available, empty brackets `[]` are displayed. This ensures consistent output format and makes it easy to parse results.
 
 ## How It Works
 
@@ -180,6 +229,8 @@ https://example.com [404]
 3. **Any Response = Live**: Any HTTP response (including 4xx/5xx) is considered "live"
 4. **Streaming**: Processes URLs as they arrive, no buffering
 5. **Connection Reuse**: Efficient connection pooling for better performance
+6. **Data Extraction**: Extracts headers, body (limited to 8KB for performance), and performs DNS resolution
+7. **Color Output**: Always outputs ANSI color codes, even when redirecting to files
 
 ## Performance
 
@@ -195,7 +246,15 @@ https://example.com [404]
 | Speed | ⚡ Very Fast (fasthttp) | Fast (net/http) |
 | Streaming | ✅ Yes | ✅ Yes |
 | Status Codes | ✅ Yes | ✅ Yes |
+| Content Type | ✅ Yes | ✅ Yes |
+| Hash (SHA256) | ✅ Yes | ✅ Yes |
+| Title Extraction | ✅ Yes | ✅ Yes |
+| Server Header | ✅ Yes | ✅ Yes |
+| IP Resolution | ✅ Yes | ✅ Yes |
+| CNAME Resolution | ✅ Yes | ✅ Yes |
+| Content Length | ✅ Yes | ✅ Yes |
 | Color Output | ✅ Yes | ✅ Yes |
+| Colors in Files | ✅ Yes | ✅ Yes |
 | Full URL Support | ✅ Yes | ✅ Yes |
 | Thread Control | ✅ Yes | ✅ Yes |
 
@@ -205,6 +264,9 @@ https://example.com [404]
 2. **For faster processing**: Reduce timeout (`-timeout 2s`)
 3. **For streaming**: Works perfectly with tools like `waybackurls`, `subfinder`, etc.
 4. **For output**: Use `anew` to avoid duplicates: `livedom -sc | anew live.txt`
+5. **For file output**: Colors are preserved when redirecting to files: `livedom -sc -ct >> output.txt`
+6. **For comprehensive info**: Combine multiple flags: `livedom -sc -ct -ip -server -hash`
+7. **For title extraction**: Only reads first 8KB of response body for performance
 
 ## Contributing
 
