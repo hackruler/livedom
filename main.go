@@ -248,9 +248,15 @@ func checkSubdomain(subdomain string, config *Config) Result {
 		// Get headers
 		result.ContentType = string(resp.Header.Peek("Content-Type"))
 		result.Server = string(resp.Header.Peek("Server"))
+		
+		// Get content length from header, or use body length as fallback
 		contentLength := resp.Header.ContentLength()
 		if contentLength > 0 {
 			result.ContentLength = int64(contentLength)
+		} else {
+			// If Content-Length header is not present, use actual body size
+			body := resp.Body()
+			result.ContentLength = int64(len(body))
 		}
 
 		// Read response body if needed for hash or title
