@@ -274,8 +274,23 @@ func checkSubdomain(subdomain string, config *Config) Result {
 		result.URL = targetURL
 
 		// Extract domain from URL for DNS resolution
-		parsedURL, _ := url.Parse(targetURL)
-		domain := parsedURL.Hostname()
+		parsedURL, err := url.Parse(targetURL)
+		var domain string
+		if err == nil && parsedURL != nil {
+			domain = parsedURL.Hostname()
+		} else {
+			// If URL parsing fails, try to extract domain from the URL string directly
+			// Remove protocol if present
+			domain = strings.TrimPrefix(strings.TrimPrefix(targetURL, "https://"), "http://")
+			// Remove path, query, fragment
+			if idx := strings.IndexAny(domain, "/?#"); idx != -1 {
+				domain = domain[:idx]
+			}
+			// Remove port if present
+			if idx := strings.Index(domain, ":"); idx != -1 {
+				domain = domain[:idx]
+			}
+		}
 
 		// Get headers
 		result.ContentType = string(resp.Header.Peek("Content-Type"))
@@ -311,7 +326,7 @@ func checkSubdomain(subdomain string, config *Config) Result {
 		}
 
 		// Resolve IP and CNAME if needed
-		if config.ShowIP || config.ShowCNAME {
+		if (config.ShowIP || config.ShowCNAME) && domain != "" {
 			ip, cname := resolveDNS(domain)
 			if config.ShowIP {
 				result.IP = ip
