@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,7 @@ type Config struct {
 	ShowIP            bool
 	ShowCNAME         bool
 	ShowContentLength bool
+	Update            bool
 	Threads           int
 	Timeout           time.Duration
 	InputFile         string
@@ -55,6 +57,12 @@ func main() {
 
 	config := parseFlags()
 
+	// Check if update flag is set
+	if config.Update {
+		updateTool()
+		return
+	}
+
 	// Process subdomains as they come in (streaming)
 	processSubdomainsStreaming(config)
 }
@@ -70,6 +78,7 @@ func parseFlags() *Config {
 	flag.BoolVar(&config.ShowIP, "ip", false, "Show IP address")
 	flag.BoolVar(&config.ShowCNAME, "cname", false, "Show CNAME")
 	flag.BoolVar(&config.ShowContentLength, "cl", false, "Show content length")
+	flag.BoolVar(&config.Update, "up", false, "Update livedom to the latest version")
 	flag.IntVar(&config.Threads, "t", 50, "Number of concurrent threads")
 	flag.DurationVar(&config.Timeout, "timeout", 5*time.Second, "Request timeout")
 	flag.StringVar(&config.InputFile, "f", "", "Input file with subdomains (default: stdin)")
@@ -77,6 +86,22 @@ func parseFlags() *Config {
 	flag.Parse()
 
 	return config
+}
+
+func updateTool() {
+	fmt.Println(color.New(color.FgCyan).Sprint("Updating livedom to the latest version..."))
+
+	cmd := exec.Command("go", "install", "github.com/hackruler/livedom@latest")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err := cmd.Run()
+	if err != nil {
+		fmt.Println(color.New(color.FgRed).Sprint("Error updating livedom:"), err)
+		os.Exit(1)
+	}
+
+	fmt.Println(color.New(color.FgGreen).Sprint("✓ Successfully updated livedom!"))
 }
 
 func readSubdomains(inputFile string) []string {
@@ -248,7 +273,7 @@ func checkSubdomain(subdomain string, config *Config) Result {
 		// Get headers
 		result.ContentType = string(resp.Header.Peek("Content-Type"))
 		result.Server = string(resp.Header.Peek("Server"))
-		
+
 		// Get content length from header, or use body length as fallback
 		contentLength := resp.Header.ContentLength()
 		if contentLength > 0 {

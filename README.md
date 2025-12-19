@@ -95,6 +95,16 @@ Read domains from a file:
 livedom -f domains.txt -sc
 ```
 
+### Update Tool
+
+Update livedom to the latest version:
+
+```bash
+livedom -up
+```
+
+This will run `go install github.com/hackruler/livedom@latest` to update the tool.
+
 ## Command Line Options
 
 | Flag | Description | Default |
@@ -107,6 +117,7 @@ livedom -f domains.txt -sc
 | `-ip` | Show IP address (DNS resolution) | `false` |
 | `-cname` | Show CNAME record | `false` |
 | `-cl` | Show content length | `false` |
+| `-up` | Update livedom to the latest version | `false` |
 | `-t` | Number of concurrent threads | `50` |
 | `-timeout` | Request timeout duration | `5s` |
 | `-f` | Input file (default: stdin) | `""` |
