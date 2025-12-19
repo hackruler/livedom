@@ -91,6 +91,13 @@ func parseFlags() *Config {
 func updateTool() {
 	fmt.Println(color.New(color.FgCyan).Sprint("Updating livedom to the latest version..."))
 
+	// First update the module to latest
+	getCmd := exec.Command("go", "get", "-u", "github.com/hackruler/livedom@latest")
+	getCmd.Stdout = os.Stdout
+	getCmd.Stderr = os.Stderr
+	getCmd.Run() // Run get, ignore errors
+
+	// Then install the latest version
 	cmd := exec.Command("go", "install", "github.com/hackruler/livedom@latest")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
