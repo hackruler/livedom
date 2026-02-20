@@ -48,13 +48,18 @@ func checkSubdomain(subdomain string, config *Config, callback func(Result)) {
 	} else {
 		// It's just a domain
 		if len(config.Ports) > 0 {
-			// Use custom ports - try both HTTP and HTTPS for each port
+			// When 80 and/or 443 are in the list: only HTTPS if 443 is open, else only HTTP if 80 is open
+			port443Open := isPortOpen(subdomain, "443")
+			port80Open := isPortOpen(subdomain, "80")
 			for _, port := range config.Ports {
-				// For standard ports, use appropriate scheme
-				if port == "80" {
-					urls = append(urls, fmt.Sprintf("http://%s:%s", subdomain, port))
-				} else if port == "443" {
-					urls = append(urls, fmt.Sprintf("https://%s:%s", subdomain, port))
+				if port == "443" {
+					if port443Open {
+						urls = append(urls, fmt.Sprintf("https://%s:%s", subdomain, port))
+					}
+				} else if port == "80" {
+					if !port443Open && port80Open {
+						urls = append(urls, fmt.Sprintf("http://%s:%s", subdomain, port))
+					}
 				} else {
 					// For non-standard ports, try both HTTP and HTTPS
 					urls = append(urls, fmt.Sprintf("https://%s:%s", subdomain, port))
@@ -62,10 +67,13 @@ func checkSubdomain(subdomain string, config *Config, callback func(Result)) {
 				}
 			}
 		} else {
-			// Default: try HTTPS first, then HTTP
-			urls = []string{
-				fmt.Sprintf("https://%s", subdomain),
-				fmt.Sprintf("http://%s", subdomain),
+			// Default: only HTTPS if 443 is open, else only HTTP if 80 is open
+			if isPortOpen(subdomain, "443") {
+				urls = []string{fmt.Sprintf("https://%s", subdomain)}
+			} else if isPortOpen(subdomain, "80") {
+				urls = []string{fmt.Sprintf("http://%s", subdomain)}
+			} else {
+				urls = []string{} // both closed, nothing to probe
 			}
 		}
 	}
@@ -75,7 +83,7 @@ func checkSubdomain(subdomain string, config *Config, callback func(Result)) {
 	tlsConfig := &tls.Config{
 		InsecureSkipVerify: true,
 	}
-	
+
 	client := &fasthttp.Client{
 		MaxConnsPerHost:               200,
 		MaxIdleConnDuration:           30 * time.Second,
@@ -105,7 +113,7 @@ func checkSubdomain(subdomain string, config *Config, callback func(Result)) {
 			if err != nil {
 				return
 			}
-			
+
 			host := parsedURL.Hostname()
 			port := parsedURL.Port()
 			if port == "" {
@@ -146,205 +154,205 @@ func checkSubdomain(subdomain string, config *Config, callback func(Result)) {
 			if maxRetries < 0 {
 				maxRetries = 0
 			}
-			
+
 			for attempt := 0; attempt <= maxRetries; attempt++ {
 				err = client.DoTimeout(req, resp, requestTimeout) // Use DoTimeout instead of Do
 				if err == nil {
 					break // Success
 				}
-				
+
 				// If this was the last attempt, skip to cleanup
 				if attempt >= maxRetries {
 					break
 				}
-				
+
 				// Wait before retry (reduced backoff delay)
 				time.Sleep(time.Duration(attempt+1) * 50 * time.Millisecond) // Reduced from 100ms
 			}
-			
+
 			// Release request/response immediately after use
 			if err != nil {
 				return // Exit goroutine if this URL failed
 			}
 
-		// Calculate request duration
-		duration := time.Since(startTime)
-		result.Time = duration.String()
+			// Calculate request duration
+			duration := time.Since(startTime)
+			result.Time = duration.String()
 
-		statusCode := resp.StatusCode()
+			statusCode := resp.StatusCode()
 
-		// Accept any response (including 4xx, 5xx) as "live"
-		// This matches httpx behavior
-		result.StatusCode = statusCode
-		result.URL = targetURL
-		result.Failed = false
+			// Accept any response (including 4xx, 5xx) as "live"
+			// This matches httpx behavior
+			result.StatusCode = statusCode
+			result.URL = targetURL
+			result.Failed = false
 
-		// Parse URL components (already parsed above, reuse)
-		if parsedURL != nil {
-			result.Scheme = parsedURL.Scheme
-			result.Path = parsedURL.Path
-			if result.Path == "" {
-				result.Path = "/"
+			// Parse URL components (already parsed above, reuse)
+			if parsedURL != nil {
+				result.Scheme = parsedURL.Scheme
+				result.Path = parsedURL.Path
+				if result.Path == "" {
+					result.Path = "/"
+				}
+				result.Port = port // Use port from earlier parsing
 			}
-			result.Port = port // Use port from earlier parsing
-		}
 
-		// Extract domain from URL for DNS resolution
-		domain := extractDomainFromURL(targetURL)
+			// Extract domain from URL for DNS resolution
+			domain := extractDomainFromURL(targetURL)
 
-		// Get headers
-		result.ContentType = string(resp.Header.Peek("Content-Type"))
-		result.Server = string(resp.Header.Peek("Server"))
-		result.Location = string(resp.Header.Peek("Location"))
+			// Get headers
+			result.ContentType = string(resp.Header.Peek("Content-Type"))
+			result.Server = string(resp.Header.Peek("Server"))
+			result.Location = string(resp.Header.Peek("Location"))
 
-		// Collect all headers for tech detection
-		headers := make(map[string]string)
-		wappalyzerHeaders := make(map[string][]string)
-		resp.Header.VisitAll(func(key, value []byte) {
-			keyStr := string(key)
-			valueStr := string(value)
-			headers[keyStr] = valueStr
-			// Also collect for Wappalyzer (needs []string format)
-			wappalyzerHeaders[strings.ToLower(keyStr)] = []string{valueStr}
-		})
+			// Collect all headers for tech detection
+			headers := make(map[string]string)
+			wappalyzerHeaders := make(map[string][]string)
+			resp.Header.VisitAll(func(key, value []byte) {
+				keyStr := string(key)
+				valueStr := string(value)
+				headers[keyStr] = valueStr
+				// Also collect for Wappalyzer (needs []string format)
+				wappalyzerHeaders[strings.ToLower(keyStr)] = []string{valueStr}
+			})
 
-		// Get content length from header, or use body length as fallback
-		contentLength := resp.Header.ContentLength()
-		if contentLength > 0 {
-			result.ContentLength = int64(contentLength)
-		} else {
-			// If Content-Length header is not present, use actual body size
+			// Get content length from header, or use body length as fallback
+			contentLength := resp.Header.ContentLength()
+			if contentLength > 0 {
+				result.ContentLength = int64(contentLength)
+			} else {
+				// If Content-Length header is not present, use actual body size
+				body := resp.Body()
+				result.ContentLength = int64(len(body))
+			}
+
+			// Read response body
 			body := resp.Body()
-			result.ContentLength = int64(len(body))
-		}
+			bodyStr := string(body)
 
-		// Read response body
-		body := resp.Body()
-		bodyStr := string(body)
-		
-		// For analysis (hash, title, tech detection), limit to 8KB for performance
-		maxBodySize := 8192
-		bodyForAnalysis := body
-		if len(body) > maxBodySize {
-			bodyForAnalysis = body[:maxBodySize]
-		}
-		bodyStrForAnalysis := string(bodyForAnalysis)
-
-		// Always extract hash and title if JSON mode or flags are set
-		if config.JSON || config.ShowHash || config.ShowTitle {
-			if config.JSON || config.ShowHash {
-				// If hash type is md5, calculate both body_md5 and header_md5
-				hashType := config.HashType
-				if hashType == "" {
-					hashType = "sha256" // Default
-				}
-				
-				// Only calculate hash when hash flag is explicitly set
-				if config.ShowHash && hashType == "md5" {
-					// Calculate body MD5 (use full body, not limited)
-					result.Hash.BodyMD5 = calculateHash(body, "md5")
-					
-					// Calculate header MD5 - concatenate all headers
-					var headerBytes []byte
-					resp.Header.VisitAll(func(key, value []byte) {
-						headerBytes = append(headerBytes, key...)
-						headerBytes = append(headerBytes, ':')
-						headerBytes = append(headerBytes, ' ')
-						headerBytes = append(headerBytes, value...)
-						headerBytes = append(headerBytes, '\r')
-						headerBytes = append(headerBytes, '\n')
-					})
-					result.Hash.HeaderMD5 = calculateHash(headerBytes, "md5")
-				}
+			// For analysis (hash, title, tech detection), limit to 8KB for performance
+			maxBodySize := 8192
+			bodyForAnalysis := body
+			if len(body) > maxBodySize {
+				bodyForAnalysis = body[:maxBodySize]
 			}
-			if config.JSON || config.ShowTitle {
-				title, _ := extractTitle(strings.NewReader(bodyStrForAnalysis))
-				result.Title = title
-			}
-		}
+			bodyStrForAnalysis := string(bodyForAnalysis)
 
-		// Get favicon hash if requested
-		if config.ShowFavicon {
-			faviconHash := getFaviconHash(targetURL, client, config.Timeout)
-			if faviconHash != "" {
-				result.FaviconHash = faviconHash
-			}
-		}
+			// Always extract hash and title if JSON mode or flags are set
+			if config.JSON || config.ShowHash || config.ShowTitle {
+				if config.JSON || config.ShowHash {
+					// If hash type is md5, calculate both body_md5 and header_md5
+					hashType := config.HashType
+					if hashType == "" {
+						hashType = "sha256" // Default
+					}
 
-		// JSON mode: collect all additional data
-		if config.JSON {
-			// Set timestamp
-			result.Timestamp = time.Now().Format(time.RFC3339Nano)
+					// Only calculate hash when hash flag is explicitly set
+					if config.ShowHash && hashType == "md5" {
+						// Calculate body MD5 (use full body, not limited)
+						result.Hash.BodyMD5 = calculateHash(body, "md5")
 
-			// Resolve all IPs
-			if domain != "" {
-				result.IPs = resolveAllIPs(domain)
-				if len(result.IPs) > 0 {
-					result.Host = result.IPs[0]
-					result.IP = result.IPs[0] // Keep for backward compatibility
-
-					// Detect CDN
-					cdnName, cdnType, isCDN := detectCDN(result.IPs[0], headers)
-					if isCDN {
-						result.CDNName = cdnName
-						result.CDNType = cdnType
-						result.CDN = true
+						// Calculate header MD5 - concatenate all headers
+						var headerBytes []byte
+						resp.Header.VisitAll(func(key, value []byte) {
+							headerBytes = append(headerBytes, key...)
+							headerBytes = append(headerBytes, ':')
+							headerBytes = append(headerBytes, ' ')
+							headerBytes = append(headerBytes, value...)
+							headerBytes = append(headerBytes, '\r')
+							headerBytes = append(headerBytes, '\n')
+						})
+						result.Hash.HeaderMD5 = calculateHash(headerBytes, "md5")
 					}
 				}
-
-				// Resolve CNAME
-				_, cname := resolveDNS(domain)
-				result.CNAME = cname
-			}
-
-			// Get resolvers (simplified - get system DNS resolvers)
-			result.Resolvers = getResolvers()
-
-			// Count words and lines (matching httpx behavior)
-			// Words: split by whitespace and count
-			words := strings.Fields(bodyStr)
-			result.Words = len(words)
-			// Lines: split by newline (including empty lines)
-			lines := strings.Split(bodyStr, "\n")
-			// Remove trailing empty line if present (common in HTTP responses)
-			if len(lines) > 0 && lines[len(lines)-1] == "" {
-				result.Lines = len(lines) - 1
-			} else {
-				result.Lines = len(lines)
-			}
-
-			// Detect technologies using Wappalyzer
-			result.Tech = detectTechnologies(targetURL, wappalyzerHeaders, bodyForAnalysis)
-
-			// Knowledgebase (always set)
-			pageType := getPageType(result.ContentType, bodyStrForAnalysis, result.StatusCode)
-			if pageType == "" {
-				pageType = "other"
-			}
-			// For pHash, use full body but limit calculation size
-			pHash := calculatePHash(bodyStr, result.StatusCode)
-			result.Knowledgebase = Knowledgebase{
-				PageType: pageType,
-				PHash:    pHash,
-			}
-		} else {
-			// Resolve IP and CNAME if needed (non-JSON mode)
-			if (config.ShowIP || config.ShowCNAME) && domain != "" {
-				ip, cname := resolveDNS(domain)
-				if config.ShowIP {
-					result.IP = ip
+				if config.JSON || config.ShowTitle {
+					title, _ := extractTitle(strings.NewReader(bodyStrForAnalysis))
+					result.Title = title
 				}
-				if config.ShowCNAME {
+			}
+
+			// Get favicon hash if requested
+			if config.ShowFavicon {
+				faviconHash := getFaviconHash(targetURL, client, config.Timeout)
+				if faviconHash != "" {
+					result.FaviconHash = faviconHash
+				}
+			}
+
+			// JSON mode: collect all additional data
+			if config.JSON {
+				// Set timestamp
+				result.Timestamp = time.Now().Format(time.RFC3339Nano)
+
+				// Resolve all IPs
+				if domain != "" {
+					result.IPs = resolveAllIPs(domain)
+					if len(result.IPs) > 0 {
+						result.Host = result.IPs[0]
+						result.IP = result.IPs[0] // Keep for backward compatibility
+
+						// Detect CDN
+						cdnName, cdnType, isCDN := detectCDN(result.IPs[0], headers)
+						if isCDN {
+							result.CDNName = cdnName
+							result.CDNType = cdnType
+							result.CDN = true
+						}
+					}
+
+					// Resolve CNAME
+					_, cname := resolveDNS(domain)
 					result.CNAME = cname
 				}
-			}
-		}
 
-		// Call callback immediately with this result (streaming output)
-		callback(result)
+				// Get resolvers (simplified - get system DNS resolvers)
+				result.Resolvers = getResolvers()
+
+				// Count words and lines (matching httpx behavior)
+				// Words: split by whitespace and count
+				words := strings.Fields(bodyStr)
+				result.Words = len(words)
+				// Lines: split by newline (including empty lines)
+				lines := strings.Split(bodyStr, "\n")
+				// Remove trailing empty line if present (common in HTTP responses)
+				if len(lines) > 0 && lines[len(lines)-1] == "" {
+					result.Lines = len(lines) - 1
+				} else {
+					result.Lines = len(lines)
+				}
+
+				// Detect technologies using Wappalyzer
+				result.Tech = detectTechnologies(targetURL, wappalyzerHeaders, bodyForAnalysis)
+
+				// Knowledgebase (always set)
+				pageType := getPageType(result.ContentType, bodyStrForAnalysis, result.StatusCode)
+				if pageType == "" {
+					pageType = "other"
+				}
+				// For pHash, use full body but limit calculation size
+				pHash := calculatePHash(bodyStr, result.StatusCode)
+				result.Knowledgebase = Knowledgebase{
+					PageType: pageType,
+					PHash:    pHash,
+				}
+			} else {
+				// Resolve IP and CNAME if needed (non-JSON mode)
+				if (config.ShowIP || config.ShowCNAME) && domain != "" {
+					ip, cname := resolveDNS(domain)
+					if config.ShowIP {
+						result.IP = ip
+					}
+					if config.ShowCNAME {
+						result.CNAME = cname
+					}
+				}
+			}
+
+			// Call callback immediately with this result (streaming output)
+			callback(result)
 		}(targetURL)
 	}
-	
+
 	// Wait for all goroutines to complete
 	wg.Wait()
 }
