@@ -27,18 +27,22 @@ func getFaviconHash(baseURL string, client *fasthttp.Client, timeout time.Durati
 
 	for _, path := range faviconPaths {
 		faviconURL := fmt.Sprintf("%s://%s%s", parsedURL.Scheme, parsedURL.Host, path)
-		
+
+		fu, err := url.Parse(faviconURL)
+		if err != nil {
+			continue
+		}
+
 		req := fasthttp.AcquireRequest()
 		resp := fasthttp.AcquireResponse()
-		defer fasthttp.ReleaseRequest(req)
-		defer fasthttp.ReleaseResponse(resp)
 
-		req.SetRequestURI(faviconURL)
-		req.Header.SetMethod("GET")
+		prepareFasthttpRequest(req, fu, "GET")
 		req.Header.Set("User-Agent", "Mozilla/5.0")
 
-		err := client.DoTimeout(req, resp, timeout)
-		if err != nil {
+		doErr := client.DoTimeout(req, resp, timeout)
+		fasthttp.ReleaseRequest(req)
+		fasthttp.ReleaseResponse(resp)
+		if doErr != nil {
 			continue
 		}
 
